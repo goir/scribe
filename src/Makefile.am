@@ -61,7 +61,7 @@ if USE_SCRIBE_CASSANDRA
   EXTERNAL_LIBS += -lcassandra /usr/local/lib/libjansson.a
 endif
 if USE_SCRIBE_MYSQL
-    EXTERNAL_LIBS +=-lmysqlclient
+    EXTERNAL_LIBS +=-lmysqlclient -lboost_regex-mt -lboost_date_time-mt
 endif
 EXTERNAL_LIBS += -lboost_iostreams /usr/local/lib/libjansson.a $(BOOST_SYSTEM_LIB) $(BOOST_FILESYSTEM_LIB) $(BOOST_LDFLAGS)
 
@@ -101,7 +101,7 @@ shared_PROGRAMS = libscribe.so
 libscribe_so_SOURCES  = gen-cpp/scribe.cpp gen-cpp/scribe_types.cpp
 libscribe_so_CXXFLAGS = $(SHARED_CXXFLAGS)
 libscribe_so_LDFLAGS = $(SHARED_LDFLAGS)
-INTERNAL_LIBS =  libscribe.so
+INTERNAL_LIBS = libscribe.so
 endif
 
 # Binaries -- multiple progs can be defined.
@@ -114,7 +114,7 @@ if USE_SCRIBE_CASSANDRA
   scribed_SOURCES += CassandraStore.cpp
 endif
 if USE_SCRIBE_MYSQL
-  scribed_SOURCES += MysqlStore.cpp
+  scribed_SOURCES += MysqlStore.cpp CombineStore.cpp
 endif
 scribed_LDADD = $(INTERNAL_LIBS) $(EXTERNAL_LIBS)
 

@@ -29,10 +29,11 @@
 #include "scribe_server.h"
 #include "network_dynamic_config.h"
 #ifdef USE_SCRIBE_CASSANDRA
-# include "CassandraStore.h"
+#include "CassandraStore.h"
 #endif
 #ifdef USE_SCRIBE_MYSQL
-# include "MysqlStore.h"
+#include "MysqlStore.h"
+#include "CombineStore.h"
 #endif
 
 using namespace std;
@@ -117,13 +118,13 @@ Store::createStore(StoreQueue* storeq, const string& type,
                                                         multi_category));
   #ifdef USE_SCRIBE_CASSANDRA
   } else if (0 == type.compare("cassandra")) {
-      return shared_ptr<Store>(new CassandraStore(storeq, category,
-                                                        multi_category));
+      return shared_ptr<Store>(new CassandraStore(storeq, category, multi_category));
   #endif
   #ifdef USE_SCRIBE_MYSQL
   } else if (0 == type.compare("mysql")) {
-      return shared_ptr<Store>(new MysqlStore(storeq, category,
-                                                        multi_category));
+      return shared_ptr<Store>(new MysqlStore(storeq, category, multi_category));
+  } else if (0 == type.compare("combine")) {
+      return shared_ptr<Store>(new CombineStore(storeq, category, multi_category));
   #endif
   } else {
     return shared_ptr<Store>();

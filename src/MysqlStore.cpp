@@ -26,6 +26,8 @@ using namespace boost;
 MysqlStore::MysqlStore(StoreQueue* storeq, const std::string& category,
     bool multi_category) :
   Store(storeq, category, "network", multi_category) {
+  connection = new MYSQL();
+  mysql = new MYSQL();
 }
 
 MysqlStore::~MysqlStore() {

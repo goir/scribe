@@ -304,7 +304,6 @@ bool CombineStore::handleMessages(
       map<string, string> substitutions
             ( substitutions_init, substitutions_init + sizeof(substitutions_init)/sizeof(*substitutions_init) );
 
-      //cout << doSubstitutions(querieTemplates, substitutions) << endl;
       if (!executeQuery(doSubstitutions(querieTemplates, substitutions))) {
         if (!executeQuery("ROLLBACK")) {
           LOG_OPER("could not ROLLBACK transaction");
@@ -332,6 +331,7 @@ bool CombineStore::handleMessages(
           categoryHandled.c_str(), num_combined);
   }
   else {
+    g_Handler->incCounter(categoryHandled, "combined into", num_written);
     LOG_OPER("[%s] [Counter][mysql] combined <%i> messages to <%i> queries in <%lu>",
           categoryHandled.c_str(), num_combined, num_written, runtime);
   }

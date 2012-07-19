@@ -19,6 +19,7 @@
 
 #include "common.h"
 #include "store.h"
+#include "scribe_server.h"
 #include "MysqlStore.h"
 #include <jansson.h>
 #include <mysql/mysql.h>

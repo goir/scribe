@@ -55,15 +55,14 @@ endif
 EXTERNAL_LIBS = -L$(thrift_home)/lib -L$(fb303_home)/lib -L$(hadoop_home)/lib -lfb303 -lthrift -lthriftnb
 EXTERNAL_LIBS += -levent -lpthread
 if USE_SCRIBE_HDFS
-  EXTERNAL_LIBS += -lhdfs -ljvm
+    EXTERNAL_LIBS += -lhdfs -ljvm
 endif
 if USE_SCRIBE_CASSANDRA
-  EXTERNAL_LIBS += -lcassandra /usr/local/lib/libjansson.a
+    EXTERNAL_LIBS += -lcassandra -ljansson
 endif
 if USE_SCRIBE_MYSQL
     EXTERNAL_LIBS +=-lmysqlclient -lboost_regex-mt -lboost_date_time-mt
 endif
-EXTERNAL_LIBS += -lboost_iostreams /usr/local/lib/libjansson.a $(BOOST_SYSTEM_LIB) $(BOOST_FILESYSTEM_LIB) $(BOOST_LDFLAGS)
 
 # Section 2 ############################################################################
 # Set common flags recognized by automake.
@@ -79,6 +78,7 @@ AM_CPPFLAGS += -I$(hadoop_home)/include
 AM_CPPFLAGS += $(BOOST_CPPFLAGS)
 AM_CPPFLAGS += $(FB_CPPFLAGS) $(DEBUG_CPPFLAGS)
 
+AM_LDFLAGS = -Wl,--no-as-needed $(BOOST_LDFLAGS) $(BOOST_SYSTEM_LIB) $(BOOST_FILESYSTEM_LIB) $(BOOST_IOSTREAMS_LIB) $(BOOST_REGEX_LIB)
 
 # Section 3 #############################################################################
 # GENERATE BUILD RULES

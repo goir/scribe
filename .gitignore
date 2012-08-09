@@ -14,4 +14,8 @@ mkinstalldirs
 test/scribe.test.*
 test/scribed.out.*
 autom4te.cache
+configure
+Makefile.in
+aclocal.m4
+autom4te.cache
 

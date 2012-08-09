@@ -25,6 +25,7 @@
 // @author John Song
 
 #include <algorithm>
+#include <boost/regex.hpp>
 #include "common.h"
 #include "scribe_server.h"
 #include "network_dynamic_config.h"
@@ -199,7 +200,6 @@ FileStoreBase::FileStoreBase(StoreQueue* storeq,
   : Store(storeq, category, type, multi_category),
     baseFilePath("/tmp"),
     subDirectory(""),
-    filePath("/tmp"),
     baseFileName(category),
     baseSymlinkName(""),
     maxSize(DEFAULT_FILESTORE_MAX_SIZE),
@@ -215,6 +215,7 @@ FileStoreBase::FileStoreBase(StoreQueue* storeq,
     createSymlink(true),
     writeStats(false),
     rotateOnReopen(false),
+    rotateIfData(false),
     currentSize(0),
     lastRollTime(0),
     eventsWritten(0) {
@@ -235,11 +236,6 @@ void FileStoreBase::configure(pStoreConf configuration, pStoreConf parent) {
 
   if (0 == tmp.compare("yes")) {
     setHostNameSubDir();
-  }
-
-  filePath = baseFilePath;
-  if (!subDirectory.empty()) {
-    filePath += "/" + subDirectory;
   }
 
 
@@ -341,6 +337,12 @@ void FileStoreBase::configure(pStoreConf configuration, pStoreConf parent) {
       rotateOnReopen = false;
     }
   }
+
+  if (configuration->getString("rotate_if_data", tmp)) {
+    if (0 == tmp.compare("yes")) {
+      rotateIfData = true;
+    }
+  }
 }
 
 void FileStoreBase::copyCommon(const FileStoreBase *base) {
@@ -359,6 +361,7 @@ void FileStoreBase::copyCommon(const FileStoreBase *base) {
   baseSymlinkName = base->baseSymlinkName;
   writeStats = base->writeStats;
   rotateOnReopen = base->rotateOnReopen;
+  rotateIfData = base->rotateIfData;
 
   /*
    * append the category name to the base file path and change the
@@ -366,10 +369,6 @@ void FileStoreBase::copyCommon(const FileStoreBase *base) {
    * unique
    */
   baseFilePath = base->baseFilePath + std::string("/") + categoryHandled;
-  filePath = baseFilePath;
-  if (!subDirectory.empty()) {
-    filePath += "/" + subDirectory;
-  }
 
   baseFileName = categoryHandled;
 }
@@ -404,6 +403,11 @@ void FileStoreBase::periodicCheck() {
       case ROLL_NEVER:
         break;
     }
+
+  	// Do periodic roll up only if you have some messages	
+    if(rotate) {
+  	  rotate = rotateIfData ? (currentSize > 0) : rotate;
+    }
   }
 
   if (rotate) {
@@ -422,9 +426,37 @@ void FileStoreBase::rotateFile(time_t currentTime) {
            makeBaseFilename(&timeinfo).c_str(), currentSize,
            maxSize == ULONG_MAX ? 0 : maxSize);
 
-  printStats();
+  printStats(&timeinfo);
   openInternal(true, &timeinfo);
 }
+
+static const boost::regex filename_replace_re(
+      "(\\$\\{YEAR\\})|"
+      "(\\$\\{MONTH\\})|"
+      "(\\$\\{DAY\\})|"
+      "(\\$\\{HOUR\\})");
+
+
+string FileStoreBase::substituteFilenameString(string &orig_filename, struct tm* creation_time) {
+  ostringstream formatstring;
+  formatstring
+         << "(?{1}" <<                creation_time->tm_year + 1900 << ')'
+         << "(?{2}" << setw(2) << setfill('0') << creation_time->tm_mon + 1 << ')'
+         << "(?{3}" << setw(2) << setfill('0') << creation_time->tm_mday << ')'
+         << "(?{4}" << setw(2) << setfill('0') << creation_time->tm_hour << ')'
+     ;
+
+  return boost::regex_replace(orig_filename, filename_replace_re, formatstring.str(), boost::match_default | boost::format_all);
+}
+
+string FileStoreBase::makeFilePath(struct tm* creation_time) {
+  if (!subDirectory.empty()) {
+    return baseFilePath + "/" + substituteFilenameString(subDirectory, creation_time);
+  } else {
+    return baseFilePath;
+  }
+}
+
 
 string FileStoreBase::makeFullFilename(int suffix, struct tm* creation_time,
                                        bool use_full_path) {
@@ -432,7 +464,9 @@ string FileStoreBase::makeFullFilename(int suffix, struct tm* creation_time,
   ostringstream filename;
 
   if (use_full_path) {
-    filename << filePath << '/';
+    filename << makeFilePath(creation_time) << '/';
+  } else if (!subDirectory.empty()) {
+    filename << substituteFilenameString(subDirectory, creation_time) << '/';
   }
   filename << makeBaseFilename(creation_time);
   filename << '_' << setw(5) << setfill('0') << suffix;
@@ -450,9 +484,9 @@ string FileStoreBase::makeBaseSymlink() {
   return base.str();
 }
 
-string FileStoreBase::makeFullSymlink() {
+string FileStoreBase::makeFullSymlink(struct tm* creation_time) {
   ostringstream filename;
-  filename << filePath << '/' << makeBaseSymlink();
+  filename << makeFilePath(creation_time) << '/' << makeBaseSymlink();
   return filename.str();
 }
 
@@ -470,8 +504,10 @@ string FileStoreBase::makeBaseFilename(struct tm* creation_time) {
 }
 
 // returns the suffix of the newest file matching base_filename
-int FileStoreBase::findNewestFile(const string& base_filename) {
+int FileStoreBase::findNewestFile(struct tm* creation_time) {
 
+  string base_filename = makeBaseFilename(creation_time);
+  string filePath = makeFilePath(creation_time);
   std::vector<std::string> files = FileInterface::list(filePath, fsType);
 
   int max_suffix = -1;
@@ -488,7 +524,10 @@ int FileStoreBase::findNewestFile(const string& base_filename) {
   return max_suffix;
 }
 
-int FileStoreBase::findOldestFile(const string& base_filename) {
+int FileStoreBase::findOldestFile(struct tm* creation_time) {
+
+  string base_filename = makeBaseFilename(creation_time);
+  string filePath = makeFilePath(creation_time);
 
   std::vector<std::string> files = FileInterface::list(filePath, fsType);
 
@@ -524,12 +563,13 @@ int FileStoreBase::getFileSuffix(const string& filename,
   return suffix;
 }
 
-void FileStoreBase::printStats() {
+void FileStoreBase::printStats(struct tm* creation_time) {
   if (!writeStats) {
     return;
   }
 
-  string filename(filePath);
+  string filePath = makeFilePath(creation_time);
+  string filename = filePath;
   filename += "/scribe_stats";
 
   boost::shared_ptr<FileInterface> stats_file =
@@ -658,8 +698,10 @@ bool FileStore::openInternal(bool incrementFilename, struct tm* current_time) {
     current_time = &timeinfo;
   }
 
+  string filePath = makeFilePath(current_time);
+
   try {
-    int suffix = findNewestFile(makeBaseFilename(current_time));
+    int suffix = findNewestFile(current_time);
 
     if (incrementFilename) {
       ++suffix;
@@ -732,7 +774,7 @@ bool FileStore::openInternal(bool incrementFilename, struct tm* current_time) {
 
       /* just make a best effort here, and don't error if it fails */
       if (createSymlink && !isBufferFile) {
-        string symlinkName = makeFullSymlink();
+        string symlinkName = makeFullSymlink(current_time);
         boost::shared_ptr<FileInterface> tmp =
           FileInterface::createFileInterface(fsType, symlinkName, isBufferFile);
         tmp->deleteFile();
@@ -925,7 +967,7 @@ bool FileStore::writeMessages(boost::shared_ptr<logentry_vector_t> messages,
 // currently gets invoked from within a bufferstore
 void FileStore::deleteOldest(struct tm* now) {
 
-  int index = findOldestFile(makeBaseFilename(now));
+  int index = findOldestFile(now);
   if (index < 0) {
     return;
   }
@@ -942,7 +984,7 @@ void FileStore::deleteOldest(struct tm* now) {
 bool FileStore::replaceOldest(boost::shared_ptr<logentry_vector_t> messages,
                               struct tm* now) {
   string base_name = makeBaseFilename(now);
-  int index = findOldestFile(base_name);
+  int index = findOldestFile(now);
   if (index < 0) {
     LOG_OPER("[%s] Could not find files <%s>", categoryHandled.c_str(), base_name.c_str());
     return false;
@@ -979,7 +1021,7 @@ bool FileStore::readOldest(/*out*/ boost::shared_ptr<logentry_vector_t> messages
 
   long loss;
 
-  int index = findOldestFile(makeBaseFilename(now));
+  int index = findOldestFile(now);
   if (index < 0) {
     // This isn't an error. It's legit to call readOldest when there aren't any
     // files left, in which case the call succeeds but returns messages empty.
@@ -1037,6 +1079,7 @@ bool FileStore::readOldest(/*out*/ boost::shared_ptr<logentry_vector_t> messages
 }
 
 bool FileStore::empty(struct tm* now) {
+  string filePath = makeFilePath(now);
   std::vector<std::string> files = FileInterface::list(filePath, fsType);
 
   std::string base_filename = makeBaseFilename(now);
@@ -1157,7 +1200,7 @@ bool ThriftFileStore::openInternal(bool incrementFilename, struct tm* current_ti
   }
   int suffix;
   try {
-    suffix = findNewestFile(makeBaseFilename(current_time));
+    suffix = findNewestFile(current_time);
   } catch(const std::exception& e) {
     LOG_OPER("Exception < %s > in ThriftFileStore::openInternal",
       e.what());
@@ -1175,7 +1218,7 @@ bool ThriftFileStore::openInternal(bool incrementFilename, struct tm* current_ti
 
   string filename = makeFullFilename(suffix, current_time);
   /* try to create the directory containing the file */
-  if (!createFileDirectory()) {
+  if (!createFileDirectory(current_time)) {
     LOG_OPER("[%s] Could not create path for file: %s",
              categoryHandled.c_str(), filename.c_str());
     return false;
@@ -1235,7 +1278,7 @@ bool ThriftFileStore::openInternal(bool incrementFilename, struct tm* current_ti
 
   /* just make a best effort here, and don't error if it fails */
   if (createSymlink) {
-    string symlinkName = makeFullSymlink();
+    string symlinkName = makeFullSymlink(current_time);
     unlink(symlinkName.c_str());
     string symtarget = makeFullFilename(suffix, current_time, false);
     symlink(symtarget.c_str(), symlinkName.c_str());
@@ -1244,7 +1287,8 @@ bool ThriftFileStore::openInternal(bool incrementFilename, struct tm* current_ti
   return true;
 }
 
-bool ThriftFileStore::createFileDirectory () {
+bool ThriftFileStore::createFileDirectory (struct tm* current_time) {
+  string filePath = makeFilePath(current_time);
   try {
     boost::filesystem::create_directories(filePath);
   } catch(const std::exception& e) {
@@ -1403,7 +1447,11 @@ void BufferStore::configure(pStoreConf configuration, pStoreConf parent) {
 }
 
 bool BufferStore::isOpen() {
-  return primaryStore->isOpen() || secondaryStore->isOpen();
+  if (!primaryStore || !secondaryStore) {
+    return false;
+  } else {
+    return primaryStore->isOpen() || secondaryStore->isOpen();
+  }
 }
 
 bool BufferStore::open() {
@@ -1714,8 +1762,12 @@ void BufferStore::setNewRetryInterval(bool success) {
     }
   }
   else {
-    retryInterval = avgRetryInterval - retryIntervalRange/2
-                    + rand() % retryIntervalRange;
+    if (retryIntervalRange > 0) {
+      retryInterval = avgRetryInterval - retryIntervalRange/2
+        + rand() % retryIntervalRange;
+    } else {
+      retryInterval = avgRetryInterval;
+    }
   }
   LOG_OPER("[%s] choosing new retry interval <%lu> seconds",
            categoryHandled.c_str(),
@@ -1759,15 +1811,15 @@ NetworkStore::NetworkStore(StoreQueue* storeq,
     serviceBased(false),
     remotePort(0),
     serviceCacheTimeout(DEFAULT_NETWORKSTORE_CACHE_TIMEOUT),
+    lastServiceCheck(0),
     ignoreNetworkError(false),
     configmod(NULL),
-    opened(false),
-    lastServiceCheck(0) {
   // we can't open the connection until we get configured
 
   // the bool for opened ensures that we don't make duplicate
   // close calls, which would screw up the connection pool's
   // reference counting.
+    opened(false) {
 }
 
 NetworkStore::~NetworkStore() {
@@ -1804,6 +1856,10 @@ void NetworkStore::configure(pStoreConf configuration, pStoreConf parent) {
     if (0 == temp.compare("yes")) {
       ignoreNetworkError = true;
     }
+  }
+
+  if (!configuration->getString("new_category", newCategory)) {
+      newCategory = "";
   }
 
   // if this network store dynamic configured?
@@ -1961,6 +2017,7 @@ shared_ptr<Store> NetworkStore::copy(const std::string &category) {
   store->remoteHost = remoteHost;
   store->remotePort = remotePort;
   store->serviceName = serviceName;
+  store->newCategory = newCategory;
 
   return copied;
 }
@@ -1973,11 +2030,20 @@ NetworkStore::handleMessages(boost::shared_ptr<logentry_vector_t> messages) {
   int ret;
 
   if (!isOpen()) {
-    if (!open()) {
-    LOG_OPER("[%s] Could not open NetworkStore in handleMessages",
-             categoryHandled.c_str());
-    return false;
-    }
+      if (!open()) {
+          LOG_OPER("[%s] Could not open NetworkStore in handleMessages",
+                  categoryHandled.c_str());
+          return false;
+      }
+  }
+
+  if (newCategory.size() > 0) {
+      LOG_OPER("[%s] Setting new category %s",
+              categoryHandled.c_str(), newCategory.c_str());
+      for (logentry_vector_t::iterator it = messages->begin();
+              it != messages->end(); ++it) {
+          (*it)->category = newCategory;
+      }
   }
 
   bool tryDummySend = shouldSendDummy(messages);

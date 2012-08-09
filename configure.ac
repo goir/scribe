@@ -67,6 +67,7 @@ AX_BOOST_SYSTEM
 AX_BOOST_FILESYSTEM
 AX_BOOST_REGEX
 
+AM_COND_IF([USE_SCRIBE_CASSANDRA], [AX_BOOST_IOSTREAMS])
 AM_COND_IF([USE_SCRIBE_MYSQL], [AX_LIB_MYSQL])
 
 # Generates Makefile from Makefile.am. Modify when new subdirs are added.

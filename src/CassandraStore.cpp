@@ -183,8 +183,6 @@ bool CassandraStore::handleMessages(
     vector<Cassandra::CounterColumnInsertTuple> countercit;
     vector<Cassandra::CounterSuperColumnInsertTuple> counterscit;
     if (data.size() > 0) {
-        client->setKeyspace(keyspace);
-
         for (vector<CassandraDataStruct>::iterator iter = data.begin(); iter != data.end(); ++iter) {
             if (iter->superColumnFamily.empty()) {
                 if (iter->counter) {
@@ -211,6 +209,8 @@ bool CassandraStore::handleMessages(
 
     if (scit.size() > 0 || cit.size() > 0 || countercit.size() > 0 || counterscit.size() > 0) {
         try {
+            client->setKeyspace(keyspace);
+
             unsigned long start = scribe::clock::nowInMsec();
             client->batchInsert(cit, scit, countercit, counterscit, consistencyLevel);
             unsigned long runtime = scribe::clock::nowInMsec() - start;
@@ -218,9 +218,15 @@ bool CassandraStore::handleMessages(
                     categoryHandled.c_str(), client->getHost().c_str(),
                     scit.size() + cit.size(), counterscit.size() + countercit.size(), runtime);
         } catch (org::apache::cassandra::InvalidRequestException &ire) {
+            cout << "InvalidRequestException" << endl;
             cout << ire.why << endl;
             success = false;
-        } catch (std::exception& e) {
+        } catch (apache::thrift::TException &tex) {
+            cout << "TException" << endl;
+            cout << tex.what() << endl;
+            success = false;
+        } catch (std::exception &e) {
+            cout << "std::exception" << endl;
             cout << e.what() << endl;
             success = false;
         }

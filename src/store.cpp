@@ -36,6 +36,9 @@
 #include "MysqlStore.h"
 #include "CombineStore.h"
 #endif
+#ifdef USE_SCRIBE_HYPERTABLE
+#include "HypertableStore.h"
+#endif
 
 using namespace std;
 using namespace boost;
@@ -126,6 +129,10 @@ Store::createStore(StoreQueue* storeq, const string& type,
       return shared_ptr<Store>(new MysqlStore(storeq, category, multi_category));
   } else if (0 == type.compare("combine")) {
       return shared_ptr<Store>(new CombineStore(storeq, category, multi_category));
+  #endif
+  #ifdef USE_SCRIBE_HYPERTABLE
+  } else if (0 == type.compare("hypertable")) {
+      return shared_ptr<Store>(new HypertableStore(storeq, category, multi_category));
   #endif
   } else {
     return shared_ptr<Store>();
@@ -404,7 +411,7 @@ void FileStoreBase::periodicCheck() {
         break;
     }
 
-  	// Do periodic roll up only if you have some messages	
+  	// Do periodic roll up only if you have some messages
     if(rotate) {
   	  rotate = rotateIfData ? (currentSize > 0) : rotate;
     }

@@ -50,6 +50,7 @@ FB_ENABLE_FEATURE([FACEBOOK], [facebook])
 FB_ENABLE_FEATURE([USE_SCRIBE_HDFS], [hdfs])
 FB_ENABLE_FEATURE([USE_SCRIBE_CASSANDRA], [cassandra])
 FB_ENABLE_FEATURE([USE_SCRIBE_MYSQL], [mysql])
+FB_ENABLE_FEATURE([USE_SCRIBE_HYPERTABLE], [hypertable])
 
 # Personalized path generator Sets default paths. Provides --with-xx=DIR options.
 # FB_WITH_PATH([<var>_home], [<var>path], [<default location>]
@@ -60,6 +61,7 @@ FB_WITH_PATH([fb303_home], [fb303path], [/usr/local])
 FB_WITH_PATH([smc_home], [smcpath], [${EXTERNAL_PATH}/services/trunk/src])
 FB_WITH_PATH([fb_home], [fbpath], [${EXTERNAL_PATH}/libfacebook])
 FB_WITH_PATH([hadoop_home], [hadooppath], [/usr/local])
+FB_WITH_PATH([hypertable_home], [hypertablepath], [/opt/hypertable/current])
 
 # Require boost 1.36 with system and filesytem libraries
 AX_BOOST_BASE([1.36])
@@ -68,6 +70,7 @@ AX_BOOST_FILESYSTEM
 AX_BOOST_REGEX
 
 AM_COND_IF([USE_SCRIBE_CASSANDRA], [AX_BOOST_IOSTREAMS])
+AM_COND_IF([USE_SCRIBE_HYPERTABLE], [AX_BOOST_IOSTREAMS])
 AM_COND_IF([USE_SCRIBE_MYSQL], [AX_LIB_MYSQL])
 
 # Generates Makefile from Makefile.am. Modify when new subdirs are added.

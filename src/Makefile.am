@@ -61,7 +61,11 @@ if USE_SCRIBE_CASSANDRA
     EXTERNAL_LIBS += -lcassandra -ljansson
 endif
 if USE_SCRIBE_MYSQL
-    EXTERNAL_LIBS +=-lmysqlclient -lboost_regex-mt -lboost_date_time-mt
+    EXTERNAL_LIBS += -lmysqlclient -lboost_regex-mt -lboost_date_time-mt
+endif
+if USE_SCRIBE_HYPERTABLE
+    EXTERNAL_LIBS += -ljansson -L$(hypertable_home)/lib -lHyperThrift \
+			         -lHyperCommon -lHypertable -lthrift -levent -llog4cpp
 endif
 
 # Section 2 ############################################################################
@@ -77,8 +81,15 @@ AM_CPPFLAGS += -I$(fb303_home)/include/thrift/fb303
 AM_CPPFLAGS += -I$(hadoop_home)/include
 AM_CPPFLAGS += $(BOOST_CPPFLAGS)
 AM_CPPFLAGS += $(FB_CPPFLAGS) $(DEBUG_CPPFLAGS)
+AM_CPPFLAGS += -DT_GLOBAL_DEBUG_VIRTUAL=0 -DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H
 
 AM_LDFLAGS = -Wl,--no-as-needed $(BOOST_LDFLAGS) $(BOOST_SYSTEM_LIB) $(BOOST_FILESYSTEM_LIB) $(BOOST_IOSTREAMS_LIB) $(BOOST_REGEX_LIB)
+
+if USE_SCRIBE_HYPERTABLE
+AM_CPPFLAGS += -I$(hypertable_home)/include -D_REENTRANT
+AM_LDFLAGS += -rdynamic 
+#-I/opt/hypertable/current/include/thrift
+endif
 
 # Section 3 #############################################################################
 # GENERATE BUILD RULES
@@ -116,6 +127,10 @@ endif
 if USE_SCRIBE_MYSQL
   scribed_SOURCES += MysqlStore.cpp CombineStore.cpp
 endif
+if USE_SCRIBE_HYPERTABLE
+  scribed_SOURCES += HypertableStore.cpp
+endif
+
 scribed_LDADD = $(INTERNAL_LIBS) $(EXTERNAL_LIBS)
 
 if SHARED

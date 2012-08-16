@@ -269,11 +269,6 @@ bool CassandraStore::getColumnStringValue(json_t* root, string key,
 }
 
 vector<CassandraStore::CassandraDataStruct>* CassandraStore::parseJsonMessage(string message) {
-    if (message.empty()) {
-        LOG_DBG("empty Message");
-        return NULL;
-    }
-
     string rowKey;
     string scName;
     vector<CassandraStore::CassandraDataStruct>* cassandraData = new vector<CassandraStore::CassandraDataStruct>();
@@ -285,6 +280,7 @@ vector<CassandraStore::CassandraDataStruct>* CassandraStore::parseJsonMessage(st
         // get rowKey which is required
         if (!getColumnStringValue(jsonRoot, "rowKey", rowKey)) {
             LOG_OPER("[cassandra][ERROR] rowKey not set %s", message.c_str());
+            json_decref(jsonRoot);
             return NULL;
         }
         LOG_DBG("rowKey: %s", rowKey.c_str());
@@ -312,6 +308,7 @@ vector<CassandraStore::CassandraDataStruct>* CassandraStore::parseJsonMessage(st
                 string columnValue;
                 if (!getColumnStringValue(jValueObj, "", columnValue)) {
                     LOG_DBG("could not get value for %s", key);
+                    json_decref(jsonRoot);
                     return NULL;
                 }
 
@@ -330,6 +327,7 @@ vector<CassandraStore::CassandraDataStruct>* CassandraStore::parseJsonMessage(st
             }
         } else {
             LOG_OPER("[cassandra][ERROR] data not set - at least one value is required: %s", message.c_str());
+            json_decref(jsonRoot);
             return NULL;
         }
 

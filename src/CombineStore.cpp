@@ -331,7 +331,7 @@ bool CombineStore::handleMessages(
           categoryHandled.c_str(), num_combined);
   }
   else {
-    g_Handler->incCounter(categoryHandled, "combined into", num_written);
+    g_Handler->incCounterBy(categoryHandled, "combined into", num_written);
     LOG_OPER("[%s] [Counter][mysql] combined <%i> messages to <%i> queries in <%lu>",
           categoryHandled.c_str(), num_combined, num_written, runtime);
   }

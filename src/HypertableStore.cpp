@@ -4,26 +4,6 @@
  * Created on: Aug 15, 2012
  * Author: goir
  *
- *      message syntax:
- *
- *      {"namespace": "/test", // defaults to first part of category
- *      "table": "thrift_test", // defaults to last part of category
- *      "key": "Key",
- *      "timestamp": "2012-08-15 00:00:00" // or timestamp in microseconds defaults to time on write
- *      "version": 0 // defaults to 0
- *      "values": {
- *                  "columnfamily:column1": "value1",
- *                  "columnfamily:column2": "value2",
- *                }
- *    // OR all values can be overwritten except namespace and table
- *      "values": {
- *                  {"key": "key", "timestamp": "2012-08-15 00:00:00", "version": "0",
- *                    "cf": "columnfamily:column1", "value": "value1"},
- *                  {"key": "key", "timestamp": "2012-08-15 00:00:00", "version": "0",
- *                    "cf": "columnfamily:column2", "value": "value2"},
- *                }
- *      }
- *
  */
 
 #ifdef USE_SCRIBE_HYPERTABLE
@@ -45,7 +25,6 @@ HypertableStore::~HypertableStore() {
 }
 
 void HypertableStore::configure(pStoreConf configuration, pStoreConf parent) {
-  cout << "configure" << endl;
   Store::configure(configuration, parent);
 
   if (!configuration->getString("remote_host", remoteHost)) {
@@ -55,9 +34,6 @@ void HypertableStore::configure(pStoreConf configuration, pStoreConf parent) {
   if (!configuration->getInt("remote_port", remotePort)) {
     remotePort = 38080;
   }
-  cout << remoteHost << endl;
-  cout << remotePort << endl;
-
 }
 
 void HypertableStore::periodicCheck() {
@@ -70,8 +46,6 @@ bool HypertableStore::open() {
   }
   opened = true;
   try {
-    cout << remoteHost << endl;
-    cout << remotePort << endl;
     client = shared_ptr<Thrift::Client>(new Thrift::Client(remoteHost, remotePort));
   } catch (Thrift::TTransportException &e) {
     cout << "HypertableStore::open TTransportException" << e.what() << endl;
@@ -119,16 +93,15 @@ bool HypertableStore::handleMessages(boost::shared_ptr<logentry_vector_t> messag
     }
   }
 
-  vector<Cell> cells;
+  map<string, map<string, vector<Cell> > > cells; // ns < table, cells >
+  map<string, map<string, logentry_vector_t> > msgs; // ns < table, string >
   for (logentry_vector_t::iterator iter = messages->begin(); iter != messages->end(); ++iter) {
     string message;
     stringstream gzMessage;
     stringstream rawMessage;
 
     // detect if message is gzipped
-    if ((unsigned int) (*iter)->message[0] == 0x1f
-        && (unsigned int) (*iter)->message[1] == 0xffffff8b) {
-      cout << message << endl;
+    if ((unsigned int) (*iter)->message[0] == 0x1f && (unsigned int) (*iter)->message[1] == 0xffffff8b) {
       gzMessage << (*iter)->message;
       boost::iostreams::filtering_streambuf<boost::iostreams::input> gzFilter;
       gzFilter.push(boost::iostreams::gzip_decompressor());
@@ -139,40 +112,62 @@ bool HypertableStore::handleMessages(boost::shared_ptr<logentry_vector_t> messag
       message = (*iter)->message;
     }
 
-    HypertableDataStruct *data = parseJsonMessage(message);
+    HypertableDataStruct data = parseJsonMessage(message);
 
-    cout << (*data) << endl;
-
-    cells.insert(cells.end(), data->cells.begin(), data->cells.end());
-//    delete[] data;
+    cells[data.ns][data.table].insert(cells[data.ns][data.table].end(), data.cells.begin(), data.cells.end());
+    msgs[data.ns][data.table].push_back(*iter); // keep messages in case the mutation fails so we can retry
   }
 
+  unsigned int tableCount = 0;
+  unsigned int cellCount = 0;
+  boost::shared_ptr<logentry_vector_t> retryMsgs(new logentry_vector_t);
   if (cells.size() > 0) {
-    try {
-      unsigned long start = scribe::clock::nowInMsec();
-      Namespace ns = client->namespace_open("test");
-      Mutator m = client->mutator_open(ns, "thrift_test", 0, 50);
-      client->mutator_set_cells(m, cells);
-      client->mutator_close(m);
-      client->namespace_close(ns);
-      unsigned long runtime = scribe::clock::nowInMsec() - start;
+    unsigned long start = scribe::clock::nowInMsec();
+    for (map<string, map<string, vector<Cell> > >::iterator nsIter = cells.begin(); nsIter != cells.end(); ++nsIter) {
+      string nsName = nsIter->first;
+      for (map<string, vector<Cell> >::iterator tableIter = nsIter->second.begin(); tableIter != nsIter->second.end();
+          ++tableIter) {
+        string tableName = tableIter->first;
+        try {
+          Namespace ns = client->namespace_open(nsName);
+          Mutator m = client->mutator_open(ns, tableName, 0, 0);
+          client->mutator_set_cells(m, tableIter->second);
+          client->mutator_close(m);
+          client->namespace_close(ns);
 
-      LOG_OPER( "[%s] [Hypertable] wrote <%i> columns in <%lu>",
-          categoryHandled.c_str(), cells.size(), runtime);
-    } catch (ClientException &e) {
-      cout << "HypertableStore::handleMessages ClientException " << e.message << endl;
-      success = false;
-    } catch (std::exception &e) {
-      cout << "HypertableStore::handleMessages std::exception " << e.what() << endl;
-      success = false;
+          tableCount++;
+          cellCount += tableIter->second.size();
+          for (vector<Cell>::iterator it3 = tableIter->second.begin(); it3 != tableIter->second.end(); ++it3) {
+            cout << *it3 << endl;
+          }
+        } catch (ClientException &e) {
+          cout << "HypertableStore::handleMessages ClientException " << e.message << endl;
+          success = false;
+        } catch (std::exception &e) {
+          cout << "HypertableStore::handleMessages std::exception " << e.what() << endl;
+          success = false;
+        }
+        if (!success) {
+          retryMsgs->insert(retryMsgs->end(), msgs[nsName][tableName].begin(), msgs[nsName][tableName].end());
+        }
+      }
     }
+    unsigned long runtime = scribe::clock::nowInMsec() - start;
+
+    g_Handler->incCounterBy(categoryHandled, "cells written", cellCount);
+
+    LOG_OPER("[%s] [Hypertable] wrote <%i> cells into <%i> tables in <%lu>ms",
+        categoryHandled.c_str(), cellCount, tableCount, runtime);
   }
 
-  return success;
+  if (!retryMsgs->empty()) {
+    messages.swap(retryMsgs);
+  }
+
+  return retryMsgs->empty();
 }
 
-bool HypertableStore::getColumnStringValue(json_t* root, const string key, const string default_,
-    string& _return) {
+bool HypertableStore::getColumnStringValue(json_t* root, const string key, string &_return) {
   json_t* jObj = (key.empty()) ? root : json_object_get(root, key.c_str());
   if (jObj) {
     int type = json_typeof(jObj);
@@ -183,7 +178,7 @@ bool HypertableStore::getColumnStringValue(json_t* root, const string key, const
       return true;
     case JSON_INTEGER:
       stream << (int64_t) json_integer_value(jObj);
-      _return = stream.str();
+      _return = stream.str().c_str();
       return true;
     case JSON_TRUE:
       _return = "true";
@@ -193,84 +188,123 @@ bool HypertableStore::getColumnStringValue(json_t* root, const string key, const
       return true;
     case JSON_REAL:
       stream << (double) json_real_value(jObj);
-      _return = stream.str();
+      _return = stream.str().c_str();
       return true;
     default:
-      LOG_OPER("[%s] [Hypertable][ERROR] value format not valid - contains NULL value ?",
-          categoryHandled.c_str());
+      LOG_OPER("[%s] [Hypertable][ERROR] value format not valid - contains NULL value ?", categoryHandled.c_str());
       return false;
     }
     return false;
   }
-  else {
-    if (!default_.empty()) {
-      _return = default_;
-      return true;
-    }
-  }
   return false;
 }
 
-HypertableStore::HypertableDataStruct* HypertableStore::parseJsonMessage(string message) {
-  if (message.empty()) {
-    LOG_OPER("[%s] [Hypertable][WARNING] empty Message", categoryHandled.c_str());
-    return NULL;
-  }
-
-  HypertableDataStruct *data = new HypertableDataStruct();
-
+HypertableStore::HypertableDataStruct HypertableStore::parseJsonMessage(string message) {
+  HypertableDataStruct data;
   json_error_t error;
   json_t* jsonRoot = json_loads(message.c_str(), 0, &error);
   if (jsonRoot) {
-    LOG_DBG("json parsed");
-    getColumnStringValue(jsonRoot, "key", "", data->key);
-    getColumnStringValue(jsonRoot, "timestamp", "", data->timestamp);
-    getColumnStringValue(jsonRoot, "version", "0", data->version);
+    getColumnStringValue(jsonRoot, "namespace", data.ns);
+    getColumnStringValue(jsonRoot, "table", data.table);
 
-    // get actual column data
-    json_t *dataObj = json_object_get(jsonRoot, "data");
-    if (json_is_object(dataObj)) {
-      if (data->key.empty()) {
-        LOG_DBG("[%s] [Hypertable][ERROR] Key is empty <%s>",
-            categoryHandled.c_str(), message.c_str());
-        return NULL;
-      }
-
-      const char* key;
-      json_t* jValueObj;
-      json_object_foreach(dataObj, key, jValueObj) {
-        string elementValue;
-
-        if (!getColumnStringValue(jValueObj, "", "", elementValue)) {
-          LOG_DBG("[%s] [Hypertable][ERROR] could not get value for %s",
-              categoryHandled.c_str(), key);
-          return NULL;
-        }
-        Hypertable::ThriftGen::Cell cell;
-        data->cells.push_back(
-            make_cell(data->key.c_str(), key, key, elementValue.c_str(), data->timestamp.c_str(),
-                data->version.c_str()));
+    // get rows
+    json_t *jRowDataObj = json_object_get(jsonRoot, "rows");
+    if (json_is_array(jRowDataObj)) {
+      size_t arrayLength = json_array_size(jRowDataObj);
+      for (size_t i = 0; i < arrayLength; i++) {
+        data.cells = getCells(json_array_get(jRowDataObj, i), message);
       }
     } else {
-      LOG_OPER("[%s] [Hypertable][ERROR] data not set - at least one value is required: %s",
-          categoryHandled.c_str(), message.c_str());
-      return NULL;
+      LOG_OPER("[%s] [Hypertable][ERROR] 'rows' is not a list! <%s>", categoryHandled.c_str(), message.c_str());
+      json_decref(jsonRoot);
+      return HypertableDataStruct();
     }
-
     json_decref(jsonRoot);
   } else {
-    LOG_OPER("[%s] [Hypertable][ERROR] Not a valid JSON String '%s'",
-        categoryHandled.c_str(), message.c_str());
-    return NULL;
+    LOG_OPER("[%s] [Hypertable][ERROR] Not a valid JSON String '%s'", categoryHandled.c_str(), message.c_str());
+    json_decref(jsonRoot);
+    return HypertableDataStruct();
   }
 
   return data;
 }
 
-HypertableStore::HypertableElementStruct HypertableStore::getElement(json_t *jsonObj) {
-  HypertableElementStruct element;
+vector<Hypertable::ThriftGen::Cell> HypertableStore::getCells(json_t *jsonRoot, const string message) {
+  vector<Hypertable::ThriftGen::Cell> cells;
+  string rowKey;
+  string timestamp_;
+  string version_;
+  const char* version;
+  const char* timestamp;
 
-  return element;
+  getColumnStringValue(jsonRoot, "key", rowKey);
+  getColumnStringValue(jsonRoot, "timestamp", timestamp_);
+  getColumnStringValue(jsonRoot, "version", version_);
+
+  if (rowKey.empty()) {
+    LOG_OPER("[%s] [Hypertable][ERROR] Namespace, Table and Key are required! <%s>",
+        categoryHandled.c_str(), message.c_str());
+    json_decref(jsonRoot);
+    return vector<Hypertable::ThriftGen::Cell>();
+  }
+
+  // set version to AUTO_ASSIGN if not set or empty
+  version = version_.c_str();
+  if (version_.empty()) {
+    version = NULL;
+  }
+
+  // set timestamp to AUTO_ASSIGN if not set or empty
+  timestamp = timestamp_.c_str();
+  if (timestamp_.empty()) {
+    timestamp = NULL;
+  }
+
+  // get actual column data
+  json_t *dataObj = json_object_get(jsonRoot, "data");
+  if (json_is_object(dataObj)) {
+    const char *columnKey;
+    string columnFamily;
+    string columnQualifier;
+    json_t* jValueObj;
+    json_object_foreach(dataObj, columnKey, jValueObj) {
+      string elementValue;
+      if (strcmp(columnKey, "") == 0) {
+        LOG_OPER("[%s] [Hypertable][ERROR] columnKey <%s> invalid '%s'",
+            categoryHandled.c_str(), columnKey, message.c_str());
+        return vector<Hypertable::ThriftGen::Cell>();
+      }
+
+      if (!getColumnStringValue(jValueObj, "", elementValue)) {
+        LOG_OPER("[%s] [Hypertable][ERROR] could not get value for %s <%s>",
+            categoryHandled.c_str(), columnKey, message.c_str());
+        return vector<Hypertable::ThriftGen::Cell>();
+      }
+
+      vector<string> cfSplit; // #2: Search for tokens
+      boost::algorithm::split(cfSplit, columnKey, is_any_of(":"), token_compress_on);
+      if (cfSplit.size() == 1) {
+        columnFamily = cfSplit.at(0);
+      } else if (cfSplit.size() == 2) {
+        columnFamily = cfSplit.at(0);
+        columnQualifier = cfSplit.at(1);
+      } else {
+        LOG_OPER("[%s] [Hypertable][ERROR] columnKey invalid <%s> - this should not happen <%s>",
+            categoryHandled.c_str(), columnKey, message.c_str());
+        return vector<Hypertable::ThriftGen::Cell>();
+      }
+
+      cells.push_back(
+          make_cell(rowKey.c_str(), columnFamily.c_str(), columnQualifier.c_str(), elementValue.c_str(), timestamp,
+              version));
+    }
+  } else {
+    LOG_OPER("[%s] [Hypertable][ERROR] data not set - at least one value is required: %s",
+        categoryHandled.c_str(), message.c_str());
+    return vector<Hypertable::ThriftGen::Cell>();
+  }
+
+  return cells;
 }
 
 void HypertableStore::flush() {

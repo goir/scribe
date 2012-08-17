@@ -64,6 +64,7 @@ class scribeHandler : virtual public scribe::thrift::scribeIf,
     return config;
   }
 
+  void incCounterBy(std::string category, std::string counter, long amount);
   void incCounter(std::string category, std::string counter);
   void incCounter(std::string category, std::string counter, long amount);
   void incCounter(std::string counter);

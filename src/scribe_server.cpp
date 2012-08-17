@@ -53,6 +53,10 @@ void scribeHandler::incCounter(string category, string counter) {
   incCounter(category, counter, 1);
 }
 
+void scribeHandler::incCounterBy(string category, string counter, long amount = 1) {
+  incrementCounter(category + log_separator + counter, amount);
+}
+
 void scribeHandler::incCounter(string category, string counter, long amount) {
   incrementCounter(category + log_separator + counter, amount);
   incrementCounter(overall_category + log_separator + counter, amount);

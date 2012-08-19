@@ -66,6 +66,10 @@ protected:
     vector<string> hqlQueries; // TODO: support this!
     vector<Hypertable::ThriftGen::Cell> cells;
 
+    bool empty() {
+      return (ns.empty() || table.empty());
+    }
+
     friend ostream& operator<<(ostream& out, const HypertableDataStruct data) {
         out << "(ns: " << data.ns
             << ", table: " << data.table

@@ -113,9 +113,10 @@ bool HypertableStore::handleMessages(boost::shared_ptr<logentry_vector_t> messag
     }
 
     HypertableDataStruct data = parseJsonMessage(message);
-
-    cells[data.ns][data.table].insert(cells[data.ns][data.table].end(), data.cells.begin(), data.cells.end());
-    msgs[data.ns][data.table].push_back(*iter); // keep messages in case the mutation fails so we can retry
+    if (!data.empty()) {
+      cells[data.ns][data.table].insert(cells[data.ns][data.table].end(), data.cells.begin(), data.cells.end());
+      msgs[data.ns][data.table].push_back(*iter); // keep messages in case the mutation fails so we can retry
+    }
   }
 
   unsigned int tableCount = 0;
@@ -137,9 +138,6 @@ bool HypertableStore::handleMessages(boost::shared_ptr<logentry_vector_t> messag
 
           tableCount++;
           cellCount += tableIter->second.size();
-          for (vector<Cell>::iterator it3 = tableIter->second.begin(); it3 != tableIter->second.end(); ++it3) {
-            cout << *it3 << endl;
-          }
         } catch (ClientException &e) {
           cout << "HypertableStore::handleMessages ClientException " << e.message << endl;
           success = false;
@@ -156,7 +154,7 @@ bool HypertableStore::handleMessages(boost::shared_ptr<logentry_vector_t> messag
 
     g_Handler->incCounterBy(categoryHandled, "cells written", cellCount);
 
-    LOG_OPER("[%s] [Hypertable] wrote <%i> cells into <%i> tables in <%lu>ms",
+    LOG_OPER("[%s] [Hypertable] wrote <%i> cells into <%i> tables in <%lums>",
         categoryHandled.c_str(), cellCount, tableCount, runtime);
   }
 
@@ -206,6 +204,11 @@ HypertableStore::HypertableDataStruct HypertableStore::parseJsonMessage(string m
   if (jsonRoot) {
     getColumnStringValue(jsonRoot, "namespace", data.ns);
     getColumnStringValue(jsonRoot, "table", data.table);
+    if (data.ns.empty() || data.table.empty()) {
+      LOG_OPER("[%s] [Hypertable][ERROR] 'namespace' and 'table' are required! <%s>", categoryHandled.c_str(), message.c_str());
+      json_decref(jsonRoot);
+      return HypertableDataStruct();
+    }
 
     // get rows
     json_t *jRowDataObj = json_object_get(jsonRoot, "rows");
@@ -242,9 +245,7 @@ vector<Hypertable::ThriftGen::Cell> HypertableStore::getCells(json_t *jsonRoot, 
   getColumnStringValue(jsonRoot, "version", version_);
 
   if (rowKey.empty()) {
-    LOG_OPER("[%s] [Hypertable][ERROR] Namespace, Table and Key are required! <%s>",
-        categoryHandled.c_str(), message.c_str());
-    json_decref(jsonRoot);
+    LOG_OPER("[%s] [Hypertable][ERROR] 'key' is required! <%s>", categoryHandled.c_str(), message.c_str());
     return vector<Hypertable::ThriftGen::Cell>();
   }
 
@@ -270,13 +271,13 @@ vector<Hypertable::ThriftGen::Cell> HypertableStore::getCells(json_t *jsonRoot, 
     json_object_foreach(dataObj, columnKey, jValueObj) {
       string elementValue;
       if (strcmp(columnKey, "") == 0) {
-        LOG_OPER("[%s] [Hypertable][ERROR] columnKey <%s> invalid '%s'",
+        LOG_OPER("[%s] [Hypertable][ERROR] column Family/Qualifier <%s> is not valid! <%s>",
             categoryHandled.c_str(), columnKey, message.c_str());
         return vector<Hypertable::ThriftGen::Cell>();
       }
 
       if (!getColumnStringValue(jValueObj, "", elementValue)) {
-        LOG_OPER("[%s] [Hypertable][ERROR] could not get value for %s <%s>",
+        LOG_OPER("[%s] [Hypertable][ERROR] could not get value for <%s> in <%s>",
             categoryHandled.c_str(), columnKey, message.c_str());
         return vector<Hypertable::ThriftGen::Cell>();
       }
@@ -289,7 +290,7 @@ vector<Hypertable::ThriftGen::Cell> HypertableStore::getCells(json_t *jsonRoot, 
         columnFamily = cfSplit.at(0);
         columnQualifier = cfSplit.at(1);
       } else {
-        LOG_OPER("[%s] [Hypertable][ERROR] columnKey invalid <%s> - this should not happen <%s>",
+        LOG_OPER("[%s] [Hypertable][ERROR] columnKey invalid <%s> - this should not happen in <%s>",
             categoryHandled.c_str(), columnKey, message.c_str());
         return vector<Hypertable::ThriftGen::Cell>();
       }

@@ -46,7 +46,7 @@ bool HypertableStore::open() {
   }
   opened = true;
   try {
-    client = shared_ptr<Thrift::Client>(new Thrift::Client(remoteHost, remotePort));
+    client = shared_ptr<Thrift::Client>(new Thrift::Client(remoteHost, remotePort, 5000, true));
   } catch (Thrift::TTransportException &e) {
     cout << "HypertableStore::open TTransportException" << e.what() << endl;
     opened = false;
@@ -113,6 +113,7 @@ bool HypertableStore::handleMessages(boost::shared_ptr<logentry_vector_t> messag
     }
 
     HypertableDataStruct data = parseJsonMessage(message);
+    //HypertableDataStruct data = parseMsgPackMessage(message);
     if (!data.empty()) {
       cells[data.ns][data.table].insert(cells[data.ns][data.table].end(), data.cells.begin(), data.cells.end());
       msgs[data.ns][data.table].push_back(*iter); // keep messages in case the mutation fails so we can retry
@@ -138,11 +139,13 @@ bool HypertableStore::handleMessages(boost::shared_ptr<logentry_vector_t> messag
 
           tableCount++;
           cellCount += tableIter->second.size();
+          success = true;
         } catch (ClientException &e) {
           cout << "HypertableStore::handleMessages ClientException " << e.message << endl;
           success = false;
         } catch (std::exception &e) {
           cout << "HypertableStore::handleMessages std::exception " << e.what() << endl;
+          close();
           success = false;
         }
         if (!success) {
@@ -162,8 +165,19 @@ bool HypertableStore::handleMessages(boost::shared_ptr<logentry_vector_t> messag
     messages.swap(retryMsgs);
   }
 
-  return retryMsgs->empty();
+  return success;
 }
+
+//HypertableStore::HypertableDataStruct HypertableStore::parseMsgPackMessage(string message) {
+//  msgpack::unpacked msg;
+//  msgpack::unpack(&msg, message.c_str(), message.length());
+//
+//  msgpack::object obj = msg.get();
+//  std::cout << obj << std::endl;
+//
+//
+//
+//}
 
 bool HypertableStore::getColumnStringValue(json_t* root, const string key, string &_return) {
   json_t* jObj = (key.empty()) ? root : json_object_get(root, key.c_str());
@@ -188,6 +202,9 @@ bool HypertableStore::getColumnStringValue(json_t* root, const string key, strin
       stream << (double) json_real_value(jObj);
       _return = stream.str().c_str();
       return true;
+    case JSON_NULL:
+          _return = "";
+          return true;
     default:
       LOG_OPER("[%s] [Hypertable][ERROR] value format not valid - contains NULL value ?", categoryHandled.c_str());
       return false;
@@ -198,8 +215,10 @@ bool HypertableStore::getColumnStringValue(json_t* root, const string key, strin
 }
 
 HypertableStore::HypertableDataStruct HypertableStore::parseJsonMessage(string message) {
+  vector<Hypertable::ThriftGen::Cell> cells;
   HypertableDataStruct data;
   json_error_t error;
+
   json_t* jsonRoot = json_loads(message.c_str(), 0, &error);
   if (jsonRoot) {
     getColumnStringValue(jsonRoot, "namespace", data.ns);
@@ -215,7 +234,8 @@ HypertableStore::HypertableDataStruct HypertableStore::parseJsonMessage(string m
     if (json_is_array(jRowDataObj)) {
       size_t arrayLength = json_array_size(jRowDataObj);
       for (size_t i = 0; i < arrayLength; i++) {
-        data.cells = getCells(json_array_get(jRowDataObj, i), message);
+        cells = getCells(json_array_get(jRowDataObj, i), message);
+        data.cells.insert(data.cells.end(), cells.begin(), cells.end());
       }
     } else {
       LOG_OPER("[%s] [Hypertable][ERROR] 'rows' is not a list! <%s>", categoryHandled.c_str(), message.c_str());
@@ -265,10 +285,10 @@ vector<Hypertable::ThriftGen::Cell> HypertableStore::getCells(json_t *jsonRoot, 
   json_t *dataObj = json_object_get(jsonRoot, "data");
   if (json_is_object(dataObj)) {
     const char *columnKey;
-    string columnFamily;
-    string columnQualifier;
     json_t* jValueObj;
     json_object_foreach(dataObj, columnKey, jValueObj) {
+      string columnQualifier = "";
+      string columnFamily = "";
       string elementValue;
       if (strcmp(columnKey, "") == 0) {
         LOG_OPER("[%s] [Hypertable][ERROR] column Family/Qualifier <%s> is not valid! <%s>",
@@ -283,16 +303,14 @@ vector<Hypertable::ThriftGen::Cell> HypertableStore::getCells(json_t *jsonRoot, 
       }
 
       vector<string> cfSplit; // #2: Search for tokens
-      boost::algorithm::split(cfSplit, columnKey, is_any_of(":"), token_compress_on);
-      if (cfSplit.size() == 1) {
-        columnFamily = cfSplit.at(0);
-      } else if (cfSplit.size() == 2) {
-        columnFamily = cfSplit.at(0);
-        columnQualifier = cfSplit.at(1);
-      } else {
-        LOG_OPER("[%s] [Hypertable][ERROR] columnKey invalid <%s> - this should not happen in <%s>",
-            categoryHandled.c_str(), columnKey, message.c_str());
-        return vector<Hypertable::ThriftGen::Cell>();
+      std::string _columnKey(columnKey);
+      size_t separatorPos = _columnKey.find_first_of(":");
+      if (separatorPos != string::npos) {
+        columnFamily = _columnKey.substr(0, separatorPos);
+        columnQualifier = _columnKey.substr(separatorPos + 1);
+      }
+      else {
+        columnFamily = _columnKey;
       }
 
       cells.push_back(

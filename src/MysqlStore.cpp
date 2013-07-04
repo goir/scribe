@@ -53,6 +53,12 @@ void MysqlStore::configure(pStoreConf configuration, pStoreConf parent) {
   if (!configuration->getString("database", database)) {
     LOG_OPER("[%s] Bad Config - database not set", categoryHandled.c_str());
   }
+
+  // start buffering if queries start to take over X seconds
+  if (!configuration->getInt("slow_query_threshold", slowQueryThreshold)) {
+    LOG_OPER("[%s] slow_query_threshold default to 30 seconds", categoryHandled.c_str());
+    slowQueryThreshold = 30;
+  }
 }
 
 bool MysqlStore::isOpen() {
@@ -70,6 +76,7 @@ bool MysqlStore::open() {
     opened = false;
     return false;
   }
+  setStatus(""); // clear status on success
   opened = true;
   return true;
 }
@@ -115,9 +122,14 @@ bool MysqlStore::handleMessages(boost::shared_ptr<logentry_vector_t> messages) {
     }
     num_written++;
   }
-  unsigned long runtime = scribe::clock::nowInMsec() - start;
+  long int runtime = scribe::clock::nowInMsec() - start;
 
-  LOG_OPER("[%s] [mysql] wrote <%i> messages in <%lu>", categoryHandled.c_str(), num_written, runtime);
+  LOG_OPER("[%s] [mysql][INFO] wrote <%i> messages in <%lu>", categoryHandled.c_str(), num_written, runtime);
+
+  if (runtime >= (slowQueryThreshold * 1000)) {
+    LOG_OPER("[%s] [mysql][WARNING] last Query took <%lu> while the threshold is at <%li>! Starting buffering!", categoryHandled.c_str(), runtime, (slowQueryThreshold * 1000));
+    success = false;
+  }
 
   if (!success) {
     close();
@@ -151,6 +163,7 @@ shared_ptr<Store> MysqlStore::copy(const std::string &category) {
   store->connection = new MYSQL();
   store->mysql = new MYSQL();
   store->opened = false;
+  store->slowQueryThreshold = slowQueryThreshold;
 
   return copied;
 }

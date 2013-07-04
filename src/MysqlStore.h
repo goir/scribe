@@ -50,6 +50,7 @@ protected:
     std::string database;
     std::string username;
     std::string password;
+    long int slowQueryThreshold;
     MYSQL *connection;
     MYSQL *mysql;
 

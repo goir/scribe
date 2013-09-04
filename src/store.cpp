@@ -837,7 +837,6 @@ shared_ptr<Store> FileStore::copy(const std::string &category) {
 }
 
 bool FileStore::handleMessages(boost::shared_ptr<logentry_vector_t> messages) {
-
   if (!isOpen()) {
     if (!open()) {
       LOG_OPER("[%s] File failed to open FileStore::handleMessages()",
@@ -885,7 +884,6 @@ bool FileStore::writeMessages(boost::shared_ptr<logentry_vector_t> messages,
       if (addNewlines) {
         ++message_length;
       }
-
       length += message_length;
 
       if (writeCategory) {
@@ -899,7 +897,6 @@ bool FileStore::writeMessages(boost::shared_ptr<logentry_vector_t> messages,
 
       // frame is a header that the underlying file class can add to each message
       frame = write_file->getFrame(message_length);
-
       length += frame.length();
 
       // padding to align messages on chunk boundaries
@@ -2372,7 +2369,6 @@ void BucketStore::configure(pStoreConf configuration, pStoreConf parent) {
   }
 
   configuration->getBool("single_random_bucket", singleRandomBucket);
-cout << "srb " << singleRandomBucket << endl;
   return;
 
 handle_error:

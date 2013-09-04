@@ -37,6 +37,8 @@ boost::shared_ptr<FileInterface> FileInterface::createFileInterface(const std::s
     return shared_ptr<FileInterface>(new StdFile(name, framed));
   } else if (0 == type.compare("hdfs")) {
     return shared_ptr<FileInterface>(new HdfsFile(name));
+  } else if (0 == type.compare("gzip")) {
+    return shared_ptr<FileInterface>(new GzipFile(name));
   } else {
     return shared_ptr<FileInterface>();
   }
@@ -102,12 +104,12 @@ bool StdFile::isOpen() {
 
 void StdFile::close() {
   if (file.is_open()) {
+    // cout <<  "close" << endl;
     file.close();
   }
 }
 
 string StdFile::getFrame(unsigned data_length) {
-
   if (framed) {
     char buf[UINT_SIZE];
     serializeUInt(data_length, buf);
@@ -119,7 +121,6 @@ string StdFile::getFrame(unsigned data_length) {
 }
 
 bool StdFile::write(const std::string& data) {
-
   if (!file.is_open()) {
     return false;
   }
@@ -292,5 +293,66 @@ void FileInterface::serializeUInt(unsigned data, char* buffer) {
   int i;
   for (i = 0; i < UINT_SIZE; ++i) {
     buffer[i] = (unsigned char)((data >> (8 * i)) & 0xFF);
+  }
+}
+
+GzipFile::GzipFile(const std::string& name)
+  : StdFile(name, false) {
+}
+
+bool GzipFile::write(const std::string& data) {
+  if (!isOpen()) {
+    return false;
+  }
+  out << data;
+
+  return true;
+}
+
+bool GzipFile::openRead() {
+  return open(std::ios_base::in);
+}
+
+bool GzipFile::openWrite() {
+  ios_base::openmode mode = std::ios_base::out | std::ios_base::binary;
+  return open(mode);
+}
+
+bool GzipFile::openTruncate() {
+  ios_base::openmode mode = std::ios_base::out | std::ios_base::binary | std::ios_base::trunc;
+  return open(mode);
+}
+
+bool GzipFile::open(ios_base::openmode mode) {
+  file.open(filename.append(".gz").c_str(), mode);
+  out.push(boost::iostreams::gzip_compressor());
+  out.push(file);
+
+  return file.good();
+}
+
+bool GzipFile::isOpen() {
+  return file.is_open();
+}
+
+void GzipFile::close() {
+  if (isOpen()) {
+    out.flush();
+    out.reset();
+  }
+}
+
+long GzipFile::readNext(std::string& _return) {
+  /* choose a reasonable value for loss */
+  return (-1000 * 1000 * 1000);
+}
+
+string GzipFile::getFrame(unsigned data_length) {
+  return std::string();    // not supported
+}
+
+void GzipFile::flush() {
+  if (isOpen()) {
+    out.flush();
   }
 }

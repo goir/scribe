@@ -23,6 +23,10 @@
 #define SCRIBE_FILE_H
 
 #include "common.h"
+#include <boost/iostreams/filtering_stream.hpp>
+#include <boost/iostreams/filtering_streambuf.hpp>
+#include <boost/iostreams/copy.hpp>
+#include <boost/iostreams/filter/gzip.hpp>
 
 class FileInterface {
  public:
@@ -79,15 +83,47 @@ class StdFile : public FileInterface {
 
  private:
   bool open(std::ios_base::openmode mode);
-
+  std::fstream file;
   char* inputBuffer;
   unsigned bufferSize;
-  std::fstream file;
 
   // disallow copy, assignment, and empty construction
   StdFile();
   StdFile(StdFile& rhs);
   StdFile& operator=(StdFile& rhs);
 };
+
+class GzipFile : public StdFile {
+ public:
+  GzipFile(const std::string& name);
+//  virtual ~GzipFile();
+
+  bool openRead();
+  bool openWrite();
+  bool openTruncate();
+  bool isOpen();
+  void close();
+  bool write(const std::string& data);
+  void flush();
+//  unsigned long fileSize();
+  long readNext(std::string& _return);
+//  void deleteFile();
+//  void listImpl(const std::string& path, std::vector<std::string>& _return);
+  std::string getFrame(unsigned data_size);
+//  bool createDirectory(std::string path);
+//  bool createSymlink(std::string newpath, std::string oldpath);
+
+ private:
+  bool open(std::ios_base::openmode mode);
+
+  boost::iostreams::filtering_ostream out;
+  std::ofstream file;
+
+  // disallow copy, assignment, and empty construction
+  GzipFile();
+  GzipFile(GzipFile& rhs);
+  GzipFile& operator=(GzipFile& rhs);
+};
+
 
 #endif // !defined SCRIBE_FILE_H

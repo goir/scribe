@@ -53,7 +53,7 @@ endif
 
 # Set libraries external to this component.
 EXTERNAL_LIBS = -L$(thrift_home)/lib -L$(fb303_home)/lib -L$(hadoop_home)/lib -lfb303 -lthrift -lthriftnb
-EXTERNAL_LIBS += -levent -lpthread
+EXTERNAL_LIBS += -levent -lpthread -lz
 if USE_SCRIBE_HDFS
     EXTERNAL_LIBS += -lhdfs -ljvm
 endif

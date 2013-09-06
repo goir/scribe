@@ -28,6 +28,7 @@ MysqlStore::MysqlStore(StoreQueue* storeq, const std::string& category,
   Store(storeq, category, "network", multi_category) {
   connection = new MYSQL();
   mysql = new MYSQL();
+  lastQueryTime = 0;
 }
 
 MysqlStore::~MysqlStore() {
@@ -66,8 +67,14 @@ bool MysqlStore::isOpen() {
 }
 
 bool MysqlStore::open() {
+  unsigned int timeout = 1;
+  bool myTrue = true;
+  mysql_options(mysql, MYSQL_INIT_COMMAND, "SET NAMES 'UTF8';");
+  mysql_options(mysql, MYSQL_OPT_COMPRESS, &myTrue);
+  mysql_options(mysql, MYSQL_OPT_WRITE_TIMEOUT, &timeout);
   connection = mysql_real_connect(mysql, remoteHost.c_str(), username.c_str(),
       password.c_str(), database.c_str(), remotePort, 0, 0);
+
   if (connection == NULL) {
     string msg = "Failed to Connect ";
     msg.append(mysql_error(mysql));
@@ -94,43 +101,48 @@ bool MysqlStore::handleMessages(boost::shared_ptr<logentry_vector_t> messages) {
   }
   bool success = true;
   int num_written = 0;
+  long int runtime = 0;
 
-  unsigned long start = scribe::clock::nowInMsec();
-  for (logentry_vector_t::iterator iter = messages->begin(); iter
-      != messages->end(); ++iter) {
-    int state;
-    string message = (*iter)->message;
-
-    // trim leading and trailing double quotes (")
-    string::size_type pos1 = message.find_first_not_of('"');
-    string::size_type pos2 = message.find_last_not_of('"');
-    message = message.substr(pos1 == string::npos ? 0 : pos1, pos2 == string::npos ? message.length() - 1 : pos2 - pos1 + 1);
-
-    state = mysql_query(connection, message.c_str());
-    if (state != 0) {
-      int errno;
-      errno = mysql_errno(mysql);
-      if (errno == 1064) {
-        LOG_OPER("[%s] Mysql query syntax error: <%s> <%s>", categoryHandled.c_str(), message.c_str(), mysql_error(connection));
-      } else {
-        cout << "state: " << state << endl;
-        cout << mysql_error(connection) << endl;
-        cout << message << endl;
-        success = false;
-        break;
-      }
-    }
-    num_written++;
-  }
-  long int runtime = scribe::clock::nowInMsec() - start;
-
-  LOG_OPER("[%s] [mysql][INFO] wrote <%i> messages in <%lu>", categoryHandled.c_str(), num_written, runtime);
-
-  if (runtime >= (slowQueryThreshold * 1000)) {
-    LOG_OPER("[%s] [mysql][WARNING] last Query took <%lu> while the threshold is at <%li>! Starting buffering!", categoryHandled.c_str(), runtime, (slowQueryThreshold * 1000));
+  cout << lastQueryTime << endl;
+  if (lastQueryTime >= slowQueryThreshold * 1000) {
+    LOG_OPER("[%s][mysql][WARNING] last Query took <%lu> while the threshold is at <%li>! Starting buffering!", categoryHandled.c_str(), lastQueryTime, (slowQueryThreshold * 1000));
     success = false;
+    lastQueryTime = 0;
   }
+  else {
+    unsigned long start = scribe::clock::nowInMsec();
+    sleep(60);
+    for (logentry_vector_t::iterator iter = messages->begin(); iter
+        != messages->end(); ++iter) {
+      int state;
+      string message = (*iter)->message;
 
+      // trim leading and trailing double quotes (")
+      string::size_type pos1 = message.find_first_not_of('"');
+      string::size_type pos2 = message.find_last_not_of('"');
+      message = message.substr(pos1 == string::npos ? 0 : pos1, pos2 == string::npos ? message.length() - 1 : pos2 - pos1 + 1);
+
+      state = mysql_query(connection, message.c_str());
+      if (state != 0) {
+        int errno;
+        errno = mysql_errno(mysql);
+        if (errno == 1064) {
+          LOG_OPER("[%s] Mysql query syntax error: <%s> <%s>", categoryHandled.c_str(), message.c_str(), mysql_error(connection));
+        } else {
+          cout << "state: " << state << endl;
+          cout << mysql_error(connection) << endl;
+          cout << message << endl;
+          success = false;
+          break;
+        }
+      }
+      num_written++;
+    }
+    runtime = scribe::clock::nowInMsec() - start;
+
+    LOG_OPER("[%s] [mysql][INFO] wrote <%i> messages in <%lu>", categoryHandled.c_str(), num_written, runtime);
+    lastQueryTime = runtime;
+  }
   if (!success) {
     close();
 
@@ -164,6 +176,7 @@ shared_ptr<Store> MysqlStore::copy(const std::string &category) {
   store->mysql = new MYSQL();
   store->opened = false;
   store->slowQueryThreshold = slowQueryThreshold;
+  store->lastQueryTime = 0;
 
   return copied;
 }

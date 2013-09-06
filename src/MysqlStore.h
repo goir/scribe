@@ -53,6 +53,7 @@ protected:
     long int slowQueryThreshold;
     MYSQL *connection;
     MYSQL *mysql;
+    int lastQueryTime;
 
     // state
     bool opened;

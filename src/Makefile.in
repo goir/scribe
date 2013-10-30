@@ -35,19 +35,30 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 build_triplet = @build@
 @USE_SCRIBE_HDFS_TRUE@am__append_1 = -lhdfs -ljvm
-@USE_SCRIBE_CASSANDRA_TRUE@am__append_2 = -lcassandra /usr/local/lib/libjansson.a
+@USE_SCRIBE_CASSANDRA_TRUE@am__append_2 = -lcassandra -ljansson
+@USE_SCRIBE_MYSQL_TRUE@am__append_3 = -lmysqlclient -lboost_regex-mt -lboost_date_time-mt
+@USE_SCRIBE_HYPERTABLE_TRUE@am__append_4 = -ljansson -L$(hypertable_home)/lib -lHyperThrift \
+@USE_SCRIBE_HYPERTABLE_TRUE@			         -lHyperCommon -lHypertable -lthrift -levent -llog4cpp
+
+@USE_SCRIBE_HYPERTABLE_TRUE@am__append_5 = -I$(hypertable_home)/include -D_REENTRANT
+@USE_SCRIBE_HYPERTABLE_TRUE@am__append_6 = -rdynamic 
 @SHARED_TRUE@shared_PROGRAMS = libscribe.so$(EXEEXT)
 bin_PROGRAMS = scribed$(EXEEXT)
-@USE_SCRIBE_HDFS_TRUE@am__append_3 = HdfsFile.cpp
-@USE_SCRIBE_CASSANDRA_TRUE@am__append_4 = CassandraStore.cpp
-@SHARED_FALSE@scribed_DEPENDENCIES = $(am__DEPENDENCIES_3) \
-@SHARED_FALSE@	$(INTERNAL_LIBS)
+@USE_SCRIBE_HDFS_TRUE@am__append_7 = HdfsFile.cpp
+@USE_SCRIBE_CASSANDRA_TRUE@am__append_8 = CassandraStore.cpp
+@USE_SCRIBE_MYSQL_TRUE@am__append_9 = MysqlStore.cpp CombineStore.cpp
+@USE_SCRIBE_HYPERTABLE_TRUE@am__append_10 = HypertableStore.cpp
+@SHARED_FALSE@scribed_DEPENDENCIES = $(INTERNAL_LIBS) \
+@SHARED_FALSE@	$(am__DEPENDENCIES_2)
 subdir = src
 DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/aclocal/ax_boost_base.m4 \
 	$(top_srcdir)/aclocal/ax_boost_filesystem.m4 \
+	$(top_srcdir)/aclocal/ax_boost_iostreams.m4 \
+	$(top_srcdir)/aclocal/ax_boost_regex.m4 \
 	$(top_srcdir)/aclocal/ax_boost_system.m4 \
+	$(top_srcdir)/aclocal/ax_lib_mysql.m4 \
 	$(top_srcdir)/acinclude.m4 $(top_srcdir)/configure.ac
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 	$(ACLOCAL_M4)
@@ -109,27 +120,29 @@ libscribe_so_LINK = $(CXXLD) $(libscribe_so_CXXFLAGS) $(CXXFLAGS) \
 	$(libscribe_so_LDFLAGS) $(LDFLAGS) -o $@
 am__scribed_SOURCES_DIST = store.cpp store_queue.cpp conf.cpp file.cpp \
 	conn_pool.cpp scribe_server.cpp network_dynamic_config.cpp \
-	dynamic_bucket_updater.cpp \
-	gen-cpp/ServiceManager_types.cpp gen-cpp/ServiceManager.cpp \
-	env_default.cpp env_facebook.cpp HdfsFile.cpp \
-	CassandraStore.cpp
+	dynamic_bucket_updater.cpp gen-cpp/ServiceManager_types.cpp \
+	gen-cpp/ServiceManager.cpp env_default.cpp env_facebook.cpp \
+	HdfsFile.cpp CassandraStore.cpp MysqlStore.cpp \
+	CombineStore.cpp HypertableStore.cpp
 @FACEBOOK_TRUE@am__objects_1 = ServiceManager_types.$(OBJEXT) \
 @FACEBOOK_TRUE@	ServiceManager.$(OBJEXT)
 @FACEBOOK_FALSE@am__objects_2 = env_default.$(OBJEXT)
 @FACEBOOK_TRUE@am__objects_2 = env_facebook.$(OBJEXT)
 @USE_SCRIBE_HDFS_TRUE@am__objects_3 = HdfsFile.$(OBJEXT)
 @USE_SCRIBE_CASSANDRA_TRUE@am__objects_4 = CassandraStore.$(OBJEXT)
+@USE_SCRIBE_MYSQL_TRUE@am__objects_5 = MysqlStore.$(OBJEXT) \
+@USE_SCRIBE_MYSQL_TRUE@	CombineStore.$(OBJEXT)
+@USE_SCRIBE_HYPERTABLE_TRUE@am__objects_6 = HypertableStore.$(OBJEXT)
 am_scribed_OBJECTS = store.$(OBJEXT) store_queue.$(OBJEXT) \
 	conf.$(OBJEXT) file.$(OBJEXT) conn_pool.$(OBJEXT) \
 	scribe_server.$(OBJEXT) network_dynamic_config.$(OBJEXT) \
-	dynamic_bucket_updater.$(OBJEXT) \
-	$(am__objects_1) $(am__objects_2) $(am__objects_3) \
-	$(am__objects_4)
+	dynamic_bucket_updater.$(OBJEXT) $(am__objects_1) \
+	$(am__objects_2) $(am__objects_3) $(am__objects_4) \
+	$(am__objects_5) $(am__objects_6)
 scribed_OBJECTS = $(am_scribed_OBJECTS)
 am__DEPENDENCIES_1 =
-@USE_SCRIBE_CASSANDRA_TRUE@am__DEPENDENCIES_2 =  \
-@USE_SCRIBE_CASSANDRA_TRUE@	/usr/local/lib/libjansson.a
-am__DEPENDENCIES_3 = $(am__DEPENDENCIES_1) $(am__DEPENDENCIES_2)
+am__DEPENDENCIES_2 = $(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
+	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1)
 DEFAULT_INCLUDES = -I.@am__isrc@
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
@@ -158,7 +171,9 @@ AWK = @AWK@
 BASH = @BASH@
 BOOST_CPPFLAGS = @BOOST_CPPFLAGS@
 BOOST_FILESYSTEM_LIB = @BOOST_FILESYSTEM_LIB@
+BOOST_IOSTREAMS_LIB = @BOOST_IOSTREAMS_LIB@
 BOOST_LDFLAGS = @BOOST_LDFLAGS@
+BOOST_REGEX_LIB = @BOOST_REGEX_LIB@
 BOOST_SYSTEM_LIB = @BOOST_SYSTEM_LIB@
 CC = @CC@
 CCDEPMODE = @CCDEPMODE@
@@ -189,6 +204,10 @@ LTLIBOBJS = @LTLIBOBJS@
 LTYPE = @LTYPE@
 MAKEINFO = @MAKEINFO@
 MKDIR_P = @MKDIR_P@
+MYSQL_CFLAGS = @MYSQL_CFLAGS@
+MYSQL_CONFIG = @MYSQL_CONFIG@
+MYSQL_LDFLAGS = @MYSQL_LDFLAGS@
+MYSQL_VERSION = @MYSQL_VERSION@
 OBJEXT = @OBJEXT@
 PACKAGE = @PACKAGE@
 PACKAGE_BUGREPORT = @PACKAGE_BUGREPORT@
@@ -238,6 +257,7 @@ fb_home = @fb_home@
 hadoop_home = @hadoop_home@
 host_alias = @host_alias@
 htmldir = @htmldir@
+hypertable_home = @hypertable_home@
 includedir = @includedir@
 infodir = @infodir@
 install_sh = @install_sh@
@@ -306,7 +326,8 @@ THRIFT_OPTS = $(THRIFT_INCLUDES) --gen cpp:pure_enums --gen py --gen php --gen j
 # Set libraries external to this component.
 EXTERNAL_LIBS = -L$(thrift_home)/lib -L$(fb303_home)/lib \
 	-L$(hadoop_home)/lib -lfb303 -lthrift -lthriftnb -levent \
-	-lpthread $(am__append_1) $(am__append_2)
+	-lpthread -lz $(am__append_1) $(am__append_2) $(am__append_3) \
+	$(am__append_4)
 
 # Section 2 ############################################################################
 # Set common flags recognized by automake.
@@ -315,8 +336,13 @@ EXTERNAL_LIBS = -L$(thrift_home)/lib -L$(fb303_home)/lib \
 AM_CPPFLAGS = -I.. -I$(thrift_home)/include \
 	-I$(thrift_home)/include/thrift -I$(fb303_home)/include/thrift \
 	-I$(fb303_home)/include/thrift/fb303 -I$(hadoop_home)/include \
-	$(BOOST_CPPFLAGS) $(FB_CPPFLAGS) $(DEBUG_CPPFLAGS)
-AM_LDFLAGS = $(BOOST_LDFLAGS) $(BOOST_SYSTEM_LIB) $(BOOST_FILESYSTEM_LIB) -lboost_iostreams /usr/local/lib/libjansson.a
+	$(BOOST_CPPFLAGS) $(FB_CPPFLAGS) $(DEBUG_CPPFLAGS) \
+	-DT_GLOBAL_DEBUG_VIRTUAL=0 -DHAVE_INTTYPES_H \
+	-DHAVE_NETINET_IN_H $(am__append_5)
+AM_LDFLAGS = -Wl,--no-as-needed $(BOOST_LDFLAGS) $(BOOST_SYSTEM_LIB) \
+	$(BOOST_FILESYSTEM_LIB) $(BOOST_IOSTREAMS_LIB) \
+	$(BOOST_REGEX_LIB) $(am__append_6)
+#-I/opt/hypertable/current/include/thrift
 
 # Section 3 #############################################################################
 # GENERATE BUILD RULES
@@ -338,9 +364,10 @@ AM_LDFLAGS = $(BOOST_LDFLAGS) $(BOOST_SYSTEM_LIB) $(BOOST_FILESYSTEM_LIB) -lboos
 @SHARED_TRUE@libscribe_so_LDFLAGS = $(SHARED_LDFLAGS)
 scribed_SOURCES = store.cpp store_queue.cpp conf.cpp file.cpp \
 	conn_pool.cpp scribe_server.cpp network_dynamic_config.cpp \
-	dynamic_bucket_updater.cpp \
-	$(FB_SOURCES) $(ENV_SOURCES) $(am__append_3) $(am__append_4)
-scribed_LDADD = $(EXTERNAL_LIBS) $(INTERNAL_LIBS)
+	dynamic_bucket_updater.cpp $(FB_SOURCES) $(ENV_SOURCES) \
+	$(am__append_7) $(am__append_8) $(am__append_9) \
+	$(am__append_10)
+scribed_LDADD = $(INTERNAL_LIBS) $(EXTERNAL_LIBS)
 @SHARED_TRUE@scribed_DEPENDENCIES = libscribe.so
 BUILT_SOURCES = thriftstyle
 all: $(BUILT_SOURCES)
@@ -507,7 +534,10 @@ distclean-compile:
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/BucketStoreMapping.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/CassandraStore.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/CombineStore.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/HdfsFile.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/HypertableStore.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/MysqlStore.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ServiceManager.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ServiceManager_types.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bucketupdater_constants.Po@am__quote@

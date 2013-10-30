@@ -49,6 +49,7 @@ class scribeHandler : virtual public scribe::thrift::scribeIf,
   void getStatusDetails(std::string& _return);
   void setStatus(facebook::fb303::fb_status new_status);
   void setStatusDetails(const std::string& new_status_details);
+  bool setStatusStopped();
 
   unsigned long int port; // it's long because that's all I implemented in the conf class
 

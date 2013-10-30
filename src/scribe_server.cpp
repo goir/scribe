@@ -202,6 +202,12 @@ void scribeHandler::getStatusDetails(std::string& _return) {
   return;
 }
 
+bool scribeHandler::setStatusStopped() {
+  RWGuard monitor(*scribeHandlerLock, true);
+  setStatus(STOPPING);
+  return true;
+}
+
 void scribeHandler::setStatusDetails(const string& new_status_details) {
   LOG_OPER("STATUS: %s", new_status_details.c_str());
   Guard status_monitor(statusLock);

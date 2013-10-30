@@ -134,6 +134,7 @@ bool HypertableStore::handleMessages(boost::shared_ptr<logentry_vector_t> messag
           Namespace ns = client->namespace_open(nsName);
           Mutator m = client->mutator_open(ns, tableName, 0, 0);
           client->mutator_set_cells(m, tableIter->second);
+          client->mutator_flush(m);
           client->mutator_close(m);
           client->namespace_close(ns);
 

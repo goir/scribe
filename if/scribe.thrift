@@ -39,4 +39,6 @@ service scribe extends fb303.FacebookService
 {
   ResultCode Log(1: list<LogEntry> messages);
   oneway void LogAsync(1: list<LogEntry> messages);
+  
+  bool setStatusStopped();
 }

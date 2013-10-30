@@ -103,7 +103,6 @@ bool MysqlStore::handleMessages(boost::shared_ptr<logentry_vector_t> messages) {
   int num_written = 0;
   long int runtime = 0;
 
-  cout << lastQueryTime << endl;
   if (lastQueryTime >= slowQueryThreshold * 1000) {
     LOG_OPER("[%s][mysql][WARNING] last Query took <%lu> while the threshold is at <%li>! Starting buffering!", categoryHandled.c_str(), lastQueryTime, (slowQueryThreshold * 1000));
     success = false;
@@ -111,7 +110,6 @@ bool MysqlStore::handleMessages(boost::shared_ptr<logentry_vector_t> messages) {
   }
   else {
     unsigned long start = scribe::clock::nowInMsec();
-    sleep(60);
     for (logentry_vector_t::iterator iter = messages->begin(); iter
         != messages->end(); ++iter) {
       int state;
